@@ -1,0 +1,70 @@
+name: Build Flashboxes Images
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-images:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          # - name: "bob"
+          #   file: "bob.conf"
+          - name: "buildernet"
+            file: "buildernet.conf"
+        profile:
+          - ""
+          # - "devtools"
+          # - "azure"
+          # - "azure,devtools"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debian-archive-keyring systemd-container
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Build kernel
+        run: |
+          nix build .#kernel
+
+      - name: Build image
+        run: |
+          profile_arg=""
+          if [ -n "${{ matrix.profile }}" ]; then
+            profile_arg="--profile=${{ matrix.profile }}"
+          fi
+          
+          nix develop -c mkosi --force -I ${{ matrix.config.file }}
+          # nix develop -c mkosi --force -I ${{ matrix.config.file }} ${profile_arg}
+
+      - name: Generate artifact name
+        id: artifact-name
+        run: |
+          profile_suffix=""
+          if [ -n "${{ matrix.profile }}" ]; then
+            profile_suffix="-$(echo '${{ matrix.profile }}' | tr ',' '-')"
+          fi
+          echo "name=${{ matrix.config.name }}${profile_suffix}" >> $GITHUB_OUTPUT
+
+      # - name: Upload image artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: "image-${{ steps.artifact-name.outputs.name }}"
+      #     path: "build/"
+      #     retention-days: 7

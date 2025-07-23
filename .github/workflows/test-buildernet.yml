@@ -1,0 +1,65 @@
+name: Build and Test Buildernet Image
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build-buildernet-image:
+    name: "Build Buildernet Image for Testing"
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debian-archive-keyring systemd-container
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Allow unrestricted user namespaces
+        shell: bash
+        run: |
+          sudo sysctl --ignore --write kernel.apparmor_restrict_unprivileged_unconfined=0
+          sudo sysctl --ignore --write kernel.apparmor_restrict_unprivileged_userns=0
+      
+      - name: Remove security hardening features
+        # if: matrix.runner == 'ubuntu-24.04'
+        shell: bash
+        run: |
+          # Taken from https://github.com/systemd/mkosi/blob/fcacc94b9f72d9b6b1f03779b0c6e07209ceb54b/action.yaml#L42-L57.
+          sudo sysctl --ignore --write kernel.apparmor_restrict_unprivileged_unconfined=0
+          sudo sysctl --ignore --write kernel.apparmor_restrict_unprivileged_userns=0
+          # This command fails with a non-zero error code even though it unloads the apparmor profiles.
+          # https://gitlab.com/apparmor/apparmor/-/issues/403
+          sudo aa-teardown || true
+          sudo apt-get remove -y apparmor
+
+      # - name: Build kernel
+      #   run: |
+      #     nix build .#kernel
+
+      - name: Build buildernet image
+        run: |
+          echo "::group::Build Buildernet Image"
+          nix develop -c mkosi --force -I buildernet.conf
+          echo "::endgroup::"
+
+      # - name: Test image build
+      #   run: |
+      #     echo "::group::Verify Build Output"
+      #     if [ -d "build/" ]; then
+      #       echo "✅ Build directory created successfully"
+      #       ls -la build/
+      #     else
+      #       echo "❌ Build directory not found"
+      #       exit 1
+      #     fi
+      #     echo "::endgroup::"
